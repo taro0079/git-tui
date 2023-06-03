@@ -16,6 +16,7 @@ use tui::Terminal;
 use std::error::Error;
 use std::fs;
 use std::io::{self, Write};
+use std::path::Path;
 
 struct FileItem {
     display: String,
@@ -24,6 +25,10 @@ struct FileItem {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let repo = Repository::open(".").unwrap();
+    let mut index = match repo.index() {
+        Ok(index) => index,
+        Err(e) => panic!("failed to get repository index: {}", e),
+    };
     let mut opts = StatusOptions::new();
     opts.include_untracked(true);
     opts.include_ignored(true);
@@ -125,6 +130,27 @@ fn main() -> Result<(), Box<dyn Error>> {
                             f.render_widget(text, size);
                         })
                         .unwrap();
+                }
+            }
+            Key::Char('=') => {
+                if let Some(selected) = list_status.selected() {
+                    let path = &ffs[selected];
+                    if let Err(e) = index.add_path(Path::new(path)) {
+                        panic!("failed to add file to staging: {}", e);
+                    }
+
+                    if let Err(e) = index.write() {
+                        panic!("failed to write index changes: {}", e);
+                    }
+                    terminal.draw(|f| {
+                        let size = f.size();
+                        let list = List::new(files.clone())
+                            .block(Block::default().borders(Borders::ALL))
+                            .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                            .highlight_symbol("> ");
+
+                        f.render_stateful_widget(list, size, &mut list_status);
+                    })?;
                 }
             }
 
