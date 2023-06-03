@@ -14,7 +14,13 @@ use tui::widgets::{Block, Borders, Paragraph, Widget};
 use tui::Terminal;
 
 use std::error::Error;
+use std::fs;
 use std::io::{self, Write};
+
+struct FileItem {
+    display: String,
+    path: String,
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
     let repo = Repository::open(".").unwrap();
@@ -28,10 +34,26 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend).unwrap();
 
     let mut files = vec![];
+    let mut ffs = vec![];
     for entry in status.iter() {
-        // let status = entry.status();
+        let status = entry.status();
         if let Some(path) = entry.path() {
-            files.push(ListItem::new(path.to_string()));
+            let path_str = path.to_string();
+            if status.is_wt_new() {
+                files.push(ListItem::new(Spans::from(Span::styled(
+                    path_str.clone(),
+                    Style::default().fg(Color::Green),
+                ))));
+                ffs.push(path_str);
+            } else if status.is_wt_modified() {
+                files.push(ListItem::new(Spans::from(Span::styled(
+                    path_str.clone(),
+                    Style::default().fg(Color::Red),
+                ))));
+                ffs.push(path_str);
+            } else {
+                continue;
+            };
         }
     }
 
@@ -53,6 +75,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     for c in stdin.keys() {
         match c.unwrap() {
             Key::Char('q') => {
+                terminal.clear().unwrap(); // 終了する直前にターミナルをクリアする
                 break;
             }
             Key::Char('k') => {
@@ -61,6 +84,15 @@ fn main() -> Result<(), Box<dyn Error>> {
                     _ => 0,
                 };
                 list_status.select(Some(i));
+                terminal.draw(|f| {
+                    let size = f.size();
+                    let list = List::new(files.clone())
+                        .block(Block::default().borders(Borders::ALL))
+                        .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                        .highlight_symbol("> ");
+
+                    f.render_stateful_widget(list, size, &mut list_status);
+                })?;
             }
             Key::Char('j') => {
                 let i = match list_status.selected() {
@@ -69,18 +101,35 @@ fn main() -> Result<(), Box<dyn Error>> {
                     None => 0,
                 };
                 list_status.select(Some(i));
+                terminal.draw(|f| {
+                    let size = f.size();
+                    let list = List::new(files.clone())
+                        .block(Block::default().borders(Borders::ALL))
+                        .highlight_style(Style::default().add_modifier(Modifier::BOLD))
+                        .highlight_symbol("> ");
+
+                    f.render_stateful_widget(list, size, &mut list_status);
+                })?;
             }
+            Key::Char('\n') => {
+                if let Some(selected) = list_status.selected() {
+                    let path = &ffs[selected];
+                    let content = fs::read_to_string(path).unwrap();
+
+                    let text =
+                        Paragraph::new(content).block(Block::default().borders(Borders::ALL));
+
+                    terminal
+                        .draw(|f| {
+                            let size = f.size();
+                            f.render_widget(text, size);
+                        })
+                        .unwrap();
+                }
+            }
+
             _ => {}
         }
-        terminal.draw(|f| {
-            let size = f.size();
-            let list = List::new(files.clone())
-                .block(Block::default().borders(Borders::ALL))
-                .highlight_style(Style::default().add_modifier(Modifier::BOLD))
-                .highlight_symbol("> ");
-
-            f.render_stateful_widget(list, size, &mut list_status);
-        })?;
     }
     // ターミナルに追跡対象のファイルを表示する
     Ok(())
